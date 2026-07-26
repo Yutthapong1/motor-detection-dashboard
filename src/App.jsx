@@ -3,7 +3,7 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine, R
 
 // Set this to your deployed Render backend URL once you have it, e.g.
 // const API_BASE_URL = 'https://motor-vibration-backend.onrender.com';
-const API_BASE_URL = 'https://motor-fault-detection.onrender.com/';
+const API_BASE_URL = 'https://motor-fault-detection.onrender.com';
 
 const COLORS = {
   bg: '#0A0F1C',
