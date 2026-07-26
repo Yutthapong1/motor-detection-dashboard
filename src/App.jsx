@@ -461,6 +461,18 @@ export default function MotorFaultDashboard() {
   const active = PAGES.find((p) => p.id === page);
   const ActivePage = active.Component;
 
+  const dataAgeMs = latest?.timestamp ? Date.now() - new Date(latest.timestamp).getTime() : null;
+  const isStale = dataAgeMs !== null && dataAgeMs > 15000; // ESP32 sends roughly every 1s when actively running
+  let statusLabel = 'LIVE';
+  let statusColor = COLORS.green;
+  if (error) {
+    statusLabel = 'DISCONNECTED';
+    statusColor = COLORS.red;
+  } else if (isStale) {
+    statusLabel = 'STALE';
+    statusColor = COLORS.amber;
+  }
+
   return (
     <div style={{ fontFamily: 'Inter, sans-serif', minHeight: '100vh' }} className="flex">
       <style>{`
@@ -503,14 +515,20 @@ export default function MotorFaultDashboard() {
             <div style={{ color: COLORS.textSecondary }} className="text-sm mt-1">ADXL335 (GY-61) · DE bearing housing · 6201ZZC3</div>
           </div>
           <div className="flex items-center gap-2">
-            <span style={{ background: error ? COLORS.red : COLORS.green }} className="w-2.5 h-2.5 rounded-full inline-block animate-pulse" />
-            <span style={{ color: error ? COLORS.red : COLORS.green, fontFamily: '"JetBrains Mono", monospace' }} className="text-sm font-medium">{error ? 'DISCONNECTED' : 'LIVE'}</span>
+            <span style={{ background: statusColor }} className="w-2.5 h-2.5 rounded-full inline-block animate-pulse" />
+            <span style={{ color: statusColor, fontFamily: '"JetBrains Mono", monospace' }} className="text-sm font-medium">{statusLabel}</span>
           </div>
         </div>
 
         {error && (
           <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', color: COLORS.red }} className="rounded-lg p-3 mb-4 text-sm">
             Can't reach backend: {error}. Check that API_BASE_URL points to your deployed Render service, that the backend is awake (first request after idle can take 30-50s), and that the ESP32 has sent at least one batch.
+          </div>
+        )}
+
+        {!error && isStale && (
+          <div style={{ background: '#FFFBEB', border: '1px solid #FDE68A', color: COLORS.amber }} className="rounded-lg p-3 mb-4 text-sm">
+            Backend is reachable but the last reading is {Math.round(dataAgeMs / 1000)}s old -- the ESP32 doesn't appear to be actively sending right now. Check that it's powered on, connected to WiFi, and the sketch is running.
           </div>
         )}
 
