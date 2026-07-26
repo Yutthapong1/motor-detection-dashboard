@@ -4,7 +4,7 @@ import { LayoutDashboard, Activity, Cpu, TrendingUp, Gauge } from 'lucide-react'
 
 // Set this to your deployed Render backend URL once you have it, e.g.
 // const API_BASE_URL = 'https://motor-vibration-backend.onrender.com';
-const API_BASE_URL = 'https://motor-fault-detection.onrender.com/';
+const API_BASE_URL = 'https://motor-fault-detection.onrender.com';
 
 // Light theme for the main content area
 const COLORS = {
@@ -104,13 +104,20 @@ function useApiData() {
     }
   }, []);
 
+  const [sessionError, setSessionError] = useState(null);
+
   const startSession = useCallback(async (label) => {
     setSessionBusy(true);
+    setSessionError(null);
     try {
       const res = await fetch(`${API_BASE_URL}/session/start?label=${label}`, { method: 'POST' });
-      if (res.ok) setSession(await res.json());
+      if (!res.ok) {
+        const body = await res.text();
+        throw new Error(`HTTP ${res.status}: ${body.slice(0, 200)}`);
+      }
+      setSession(await res.json());
     } catch (e) {
-      // surfaced implicitly -- session panel just won't update
+      setSessionError(e.message || 'Failed to start session');
     } finally {
       setSessionBusy(false);
     }
@@ -131,7 +138,7 @@ function useApiData() {
     };
   }, [fetchLatest, fetchHistory, fetchSession]);
 
-  return { latest, history, session, error, loading, startSession, sessionBusy };
+  return { latest, history, session, error, loading, startSession, sessionBusy, sessionError };
 }
 
 function Panel({ title, right, children, className = '' }) {
@@ -186,7 +193,7 @@ function SpectrumChart({ data, height = 200, maxFreq = 120, maxAmp = '' }) {
   );
 }
 
-function OverviewPage({ latest, history, session, startSession, sessionBusy }) {
+function OverviewPage({ latest, history, session, startSession, sessionBusy, sessionError }) {
   const rmsTrendData = history.map((h, i) => ({ i, rms_x: h.rms_x, rms_y: h.rms_y, rms_z: h.rms_z }));
   const TRAINING_LABELS = ['normal', 'bpfo', 'bpfi', 'ftf', 'bsf'];
 
@@ -204,6 +211,12 @@ function OverviewPage({ latest, history, session, startSession, sessionBusy }) {
             )}
           </div>
         </div>
+
+        {sessionError && (
+          <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', color: COLORS.red }} className="rounded-lg p-3 mb-3 text-xs break-words">
+            Couldn't start session: {sessionError}
+          </div>
+        )}
 
         <div style={{ color: COLORS.textSecondary }} className="text-xs uppercase tracking-wider mb-1.5">Known condition (training data collection)</div>
         <div className="flex gap-2 flex-wrap mb-3">
@@ -444,7 +457,7 @@ const PAGES = [
 
 export default function MotorFaultDashboard() {
   const [page, setPage] = useState('overview');
-  const { latest, history, session, error, loading, startSession, sessionBusy } = useApiData();
+  const { latest, history, session, error, loading, startSession, sessionBusy, sessionError } = useApiData();
   const active = PAGES.find((p) => p.id === page);
   const ActivePage = active.Component;
 
@@ -505,7 +518,7 @@ export default function MotorFaultDashboard() {
           <div style={{ color: COLORS.textSecondary }} className="text-sm mb-4">Loading...</div>
         )}
 
-        <ActivePage latest={latest} history={history} session={session} startSession={startSession} sessionBusy={sessionBusy} />
+        <ActivePage latest={latest} history={history} session={session} startSession={startSession} sessionBusy={sessionBusy} sessionError={sessionError} />
       </div>
     </div>
   );
