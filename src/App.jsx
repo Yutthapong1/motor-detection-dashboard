@@ -119,8 +119,8 @@ function SpectrumChart({ data, height = 200, maxFreq = 120, maxAmp = '' }) {
     <ResponsiveContainer width="100%" height={height}>
       <LineChart data={data} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
         <CartesianGrid stroke={COLORS.border} strokeDasharray="2 4" />
-        <XAxis dataKey="freq" type="number" domain={[0, Number(maxFreq) || 120]} stroke={COLORS.textSecondary} tick={{ fontSize: 10 }} label={{ value: 'Hz', position: 'insideBottomRight', offset: -2, fill: COLORS.textSecondary, fontSize: 10 }} />
-        <YAxis domain={yDomain} stroke={COLORS.textSecondary} tick={{ fontSize: 10 }} />
+        <XAxis dataKey="freq" type="number" domain={[0, Number(maxFreq) || 120]} allowDataOverflow stroke={COLORS.textSecondary} tick={{ fontSize: 10 }} label={{ value: 'Hz', position: 'insideBottomRight', offset: -2, fill: COLORS.textSecondary, fontSize: 10 }} />
+        <YAxis domain={yDomain} allowDataOverflow stroke={COLORS.textSecondary} tick={{ fontSize: 10 }} />
         <Tooltip contentStyle={{ background: COLORS.panelAlt, border: `1px solid ${COLORS.border}`, fontSize: 11 }} labelStyle={{ color: COLORS.textPrimary }} />
         {FAULT_FREQS.map((f) => (
           <ReferenceLine key={f.name} x={f.freq} stroke={f.color} strokeDasharray="3 3" strokeOpacity={0.6}
