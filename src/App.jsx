@@ -61,17 +61,11 @@ function useApiData() {
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  const fetchData = useCallback(async () => {
+  const fetchLatest = useCallback(async () => {
     try {
-      const [latestRes, historyRes] = await Promise.all([
-        fetch(`${API_BASE_URL}/latest`),
-        fetch(`${API_BASE_URL}/history?limit=50`),
-      ]);
-      if (!latestRes.ok) throw new Error(`/latest returned HTTP ${latestRes.status}`);
-      const latestData = await latestRes.json();
-      const historyData = historyRes.ok ? await historyRes.json() : [];
-      setLatest(latestData);
-      setHistory(historyData);
+      const res = await fetch(`${API_BASE_URL}/latest`);
+      if (!res.ok) throw new Error(`/latest returned HTTP ${res.status}`);
+      setLatest(await res.json());
       setError(null);
     } catch (e) {
       setError(e.message || 'Could not reach backend');
@@ -80,13 +74,30 @@ function useApiData() {
     }
   }, []);
 
-  useEffect(() => {
-    fetchData();
-    const interval = setInterval(fetchData, 3000);
-    return () => clearInterval(interval);
-  }, [fetchData]);
+  const fetchHistory = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/history?limit=50`);
+      if (res.ok) setHistory(await res.json());
+    } catch (e) {
+      // non-critical -- don't let a history hiccup override the main connection status
+    }
+  }, []);
 
-  return { latest, history, error, loading, refetch: fetchData };
+  useEffect(() => {
+    fetchLatest();
+    fetchHistory();
+    // /latest is a single cheap document read -- poll it often for a "live" feel.
+    // /history reads up to 50 documents per call -- poll it far less often to
+    // avoid burning through the Firestore free daily read quota (50k/day).
+    const latestInterval = setInterval(fetchLatest, 5000);
+    const historyInterval = setInterval(fetchHistory, 20000);
+    return () => {
+      clearInterval(latestInterval);
+      clearInterval(historyInterval);
+    };
+  }, [fetchLatest, fetchHistory]);
+
+  return { latest, history, error, loading };
 }
 
 function Panel({ title, right, children, className = '' }) {
