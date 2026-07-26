@@ -112,13 +112,15 @@ function StatCard({ label, value, unit }) {
   );
 }
 
-function SpectrumChart({ data, height = 200 }) {
+function SpectrumChart({ data, height = 200, maxFreq = 120, maxAmp = '' }) {
+  // maxAmp empty string = auto-scale; a number = fixed scale (for comparing readings apples-to-apples)
+  const yDomain = maxAmp !== '' && !isNaN(Number(maxAmp)) ? [0, Number(maxAmp)] : ['auto', 'auto'];
   return (
     <ResponsiveContainer width="100%" height={height}>
       <LineChart data={data} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
         <CartesianGrid stroke={COLORS.border} strokeDasharray="2 4" />
-        <XAxis dataKey="freq" stroke={COLORS.textSecondary} tick={{ fontSize: 10 }} label={{ value: 'Hz', position: 'insideBottomRight', offset: -2, fill: COLORS.textSecondary, fontSize: 10 }} />
-        <YAxis stroke={COLORS.textSecondary} tick={{ fontSize: 10 }} />
+        <XAxis dataKey="freq" type="number" domain={[0, Number(maxFreq) || 120]} stroke={COLORS.textSecondary} tick={{ fontSize: 10 }} label={{ value: 'Hz', position: 'insideBottomRight', offset: -2, fill: COLORS.textSecondary, fontSize: 10 }} />
+        <YAxis domain={yDomain} stroke={COLORS.textSecondary} tick={{ fontSize: 10 }} />
         <Tooltip contentStyle={{ background: COLORS.panelAlt, border: `1px solid ${COLORS.border}`, fontSize: 11 }} labelStyle={{ color: COLORS.textPrimary }} />
         {FAULT_FREQS.map((f) => (
           <ReferenceLine key={f.name} x={f.freq} stroke={f.color} strokeDasharray="3 3" strokeOpacity={0.6}
@@ -182,9 +184,18 @@ function OverviewPage({ latest, history }) {
 
 function SignalAnalysisPage({ latest }) {
   const [axis, setAxis] = useState('x');
+  const [maxFreq, setMaxFreq] = useState(120);
+  const [maxAmp, setMaxAmp] = useState(''); // empty = auto-scale
   const axisData = latest?.[axis];
   const spectrum = zipSpectrum(axisData?.spectrum_freqs, axisData?.spectrum_mag);
   const waveform = zipWaveform(axisData?.raw, latest?.sample_rate || 500);
+
+  const inputStyle = {
+    background: COLORS.panelAlt,
+    border: `1px solid ${COLORS.border}`,
+    color: COLORS.textPrimary,
+    fontFamily: '"JetBrains Mono", monospace',
+  };
 
   return (
     <div className="space-y-4">
@@ -228,8 +239,25 @@ function SignalAnalysisPage({ latest }) {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
-        <Panel title={`FFT Spectrum - ${axis.toUpperCase()}`} className="lg:col-span-3">
-          <SpectrumChart data={spectrum} />
+        <Panel
+          title={`FFT Spectrum - ${axis.toUpperCase()}`}
+          className="lg:col-span-3"
+          right={
+            <div className="flex items-center gap-3 text-xs">
+              <label className="flex items-center gap-1.5" style={{ color: COLORS.textSecondary }}>
+                Max Hz
+                <input type="number" value={maxFreq} onChange={(e) => setMaxFreq(e.target.value)}
+                  style={inputStyle} className="w-16 rounded px-1.5 py-0.5" />
+              </label>
+              <label className="flex items-center gap-1.5" style={{ color: COLORS.textSecondary }}>
+                Max Amp
+                <input type="number" value={maxAmp} onChange={(e) => setMaxAmp(e.target.value)}
+                  placeholder="auto" style={inputStyle} className="w-16 rounded px-1.5 py-0.5" />
+              </label>
+            </div>
+          }
+        >
+          <SpectrumChart data={spectrum} maxFreq={maxFreq} maxAmp={maxAmp} />
           <div className="flex gap-4 mt-1 flex-wrap">
             <div className="flex items-center gap-1.5"><span style={{ background: COLORS.cyan }} className="w-2 h-2 rounded-full inline-block" /><span style={{ color: COLORS.textSecondary }} className="text-xs">Running speed harmonics</span></div>
             <div className="flex items-center gap-1.5"><span style={{ background: COLORS.red }} className="w-2 h-2 rounded-full inline-block" /><span style={{ color: COLORS.textSecondary }} className="text-xs">Bearing fault frequencies</span></div>
