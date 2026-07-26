@@ -112,15 +112,28 @@ function StatCard({ label, value, unit }) {
   );
 }
 
+function makeTicks(max, count = 5) {
+  const m = Number(max) || 0;
+  if (m <= 0) return undefined;
+  return Array.from({ length: count }, (_, i) => Number(((m * i) / (count - 1)).toFixed(2)));
+}
+
 function SpectrumChart({ data, height = 200, maxFreq = 120, maxAmp = '' }) {
   // maxAmp empty string = auto-scale; a number = fixed scale (for comparing readings apples-to-apples)
-  const yDomain = maxAmp !== '' && !isNaN(Number(maxAmp)) ? [0, Number(maxAmp)] : ['auto', 'auto'];
+  const freqMax = Number(maxFreq) || 120;
+  // Filter the data itself rather than relying only on chart-side clipping -- recharts'
+  // auto tick generation can produce nonsensical tick values when a restrictive domain
+  // is combined with data that extends well beyond it.
+  const clippedData = data.filter((p) => p.freq <= freqMax);
+  const hasFixedAmp = maxAmp !== '' && !isNaN(Number(maxAmp));
+  const yDomain = hasFixedAmp ? [0, Number(maxAmp)] : ['auto', 'auto'];
+  const yTicks = hasFixedAmp ? makeTicks(maxAmp) : undefined;
   return (
     <ResponsiveContainer width="100%" height={height}>
-      <LineChart data={data} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
+      <LineChart data={clippedData} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
         <CartesianGrid stroke={COLORS.border} strokeDasharray="2 4" />
-        <XAxis dataKey="freq" type="number" domain={[0, Number(maxFreq) || 120]} allowDataOverflow stroke={COLORS.textSecondary} tick={{ fontSize: 10 }} label={{ value: 'Hz', position: 'insideBottomRight', offset: -2, fill: COLORS.textSecondary, fontSize: 10 }} />
-        <YAxis domain={yDomain} allowDataOverflow stroke={COLORS.textSecondary} tick={{ fontSize: 10 }} />
+        <XAxis dataKey="freq" type="number" domain={[0, freqMax]} allowDataOverflow stroke={COLORS.textSecondary} tick={{ fontSize: 10 }} label={{ value: 'Hz', position: 'insideBottomRight', offset: -2, fill: COLORS.textSecondary, fontSize: 10 }} />
+        <YAxis domain={yDomain} ticks={yTicks} tickFormatter={(v) => Number(v).toFixed(2)} allowDataOverflow stroke={COLORS.textSecondary} tick={{ fontSize: 10 }} />
         <Tooltip contentStyle={{ background: COLORS.panelAlt, border: `1px solid ${COLORS.border}`, fontSize: 11 }} labelStyle={{ color: COLORS.textPrimary }} />
         {FAULT_FREQS.map((f) => (
           <ReferenceLine key={f.name} x={f.freq} stroke={f.color} strokeDasharray="3 3" strokeOpacity={0.6}
