@@ -1,21 +1,31 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine, ResponsiveContainer } from 'recharts';
+import { LayoutDashboard, Activity, Cpu, TrendingUp, Gauge } from 'lucide-react';
 
 // Set this to your deployed Render backend URL once you have it, e.g.
 // const API_BASE_URL = 'https://motor-vibration-backend.onrender.com';
-const API_BASE_URL = 'https://motor-fault-detection.onrender.com';
+const API_BASE_URL = 'https://your-backend.onrender.com';
 
+// Light theme for the main content area
 const COLORS = {
-  bg: '#0A0F1C',
-  panel: '#121A2E',
-  panelAlt: '#1A2338',
-  border: '#26314A',
-  textPrimary: '#E7E9F0',
-  textSecondary: '#8B93A8',
-  amber: '#FFB020',
-  cyan: '#4FD8E8',
-  red: '#FF5C5C',
-  green: '#3ECF8E',
+  bg: '#F8FAFC',
+  panel: '#FFFFFF',
+  panelAlt: '#F1F5F9',
+  border: '#E2E8F0',
+  textPrimary: '#0F172A',
+  textSecondary: '#64748B',
+  amber: '#D97706',
+  cyan: '#0891B2',
+  red: '#DC2626',
+  green: '#16A34A',
+};
+
+// Dark palette used only for the left sidebar (matches reference image's nav strip)
+const SIDEBAR = {
+  bg: '#111827',
+  hoverBg: 'rgba(217, 119, 6, 0.15)',
+  text: '#94A3B8',
+  textActive: '#D97706',
 };
 
 const FAULT_FREQS = [
@@ -58,8 +68,10 @@ function getAmplitudeAt(spectrumPoints, targetFreq) {
 function useApiData() {
   const [latest, setLatest] = useState(null);
   const [history, setHistory] = useState([]);
+  const [session, setSession] = useState({ label: 'unlabeled', trial: 0 });
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [sessionBusy, setSessionBusy] = useState(false);
 
   const fetchLatest = useCallback(async () => {
     try {
@@ -83,9 +95,31 @@ function useApiData() {
     }
   }, []);
 
+  const fetchSession = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/session/current`);
+      if (res.ok) setSession(await res.json());
+    } catch (e) {
+      // non-critical
+    }
+  }, []);
+
+  const startSession = useCallback(async (label) => {
+    setSessionBusy(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/session/start?label=${label}`, { method: 'POST' });
+      if (res.ok) setSession(await res.json());
+    } catch (e) {
+      // surfaced implicitly -- session panel just won't update
+    } finally {
+      setSessionBusy(false);
+    }
+  }, []);
+
   useEffect(() => {
     fetchLatest();
     fetchHistory();
+    fetchSession();
     // /latest is a single cheap document read -- poll it often for a "live" feel.
     // /history reads up to 50 documents per call -- poll it far less often to
     // avoid burning through the Firestore free daily read quota (50k/day).
@@ -95,16 +129,16 @@ function useApiData() {
       clearInterval(latestInterval);
       clearInterval(historyInterval);
     };
-  }, [fetchLatest, fetchHistory]);
+  }, [fetchLatest, fetchHistory, fetchSession]);
 
-  return { latest, history, error, loading };
+  return { latest, history, session, error, loading, startSession, sessionBusy };
 }
 
 function Panel({ title, right, children, className = '' }) {
   return (
-    <div style={{ background: COLORS.panel, border: `1px solid ${COLORS.border}` }} className={`rounded-lg p-5 ${className}`}>
+    <div style={{ background: COLORS.panel, border: `1px solid ${COLORS.border}`, boxShadow: '0 1px 2px rgba(15,23,42,0.04)' }} className={`rounded-lg p-5 ${className}`}>
       <div className="flex items-center justify-between mb-3">
-        <div style={{ color: COLORS.textSecondary }} className="text-xs uppercase tracking-wider">{title}</div>
+        <div style={{ color: COLORS.textSecondary }} className="text-xs uppercase tracking-wider font-medium">{title}</div>
         {right}
       </div>
       {children}
@@ -130,11 +164,7 @@ function makeTicks(max, count = 5) {
 }
 
 function SpectrumChart({ data, height = 200, maxFreq = 120, maxAmp = '' }) {
-  // maxAmp empty string = auto-scale; a number = fixed scale (for comparing readings apples-to-apples)
   const freqMax = Number(maxFreq) || 120;
-  // Filter the data itself rather than relying only on chart-side clipping -- recharts'
-  // auto tick generation can produce nonsensical tick values when a restrictive domain
-  // is combined with data that extends well beyond it.
   const clippedData = data.filter((p) => p.freq <= freqMax);
   const hasFixedAmp = maxAmp !== '' && !isNaN(Number(maxAmp));
   const yDomain = hasFixedAmp ? [0, Number(maxAmp)] : ['auto', 'auto'];
@@ -145,7 +175,7 @@ function SpectrumChart({ data, height = 200, maxFreq = 120, maxAmp = '' }) {
         <CartesianGrid stroke={COLORS.border} strokeDasharray="2 4" />
         <XAxis dataKey="freq" type="number" domain={[0, freqMax]} allowDataOverflow stroke={COLORS.textSecondary} tick={{ fontSize: 10 }} label={{ value: 'Hz', position: 'insideBottomRight', offset: -2, fill: COLORS.textSecondary, fontSize: 10 }} />
         <YAxis domain={yDomain} ticks={yTicks} tickFormatter={(v) => Number(v).toFixed(2)} allowDataOverflow stroke={COLORS.textSecondary} tick={{ fontSize: 10 }} />
-        <Tooltip contentStyle={{ background: COLORS.panelAlt, border: `1px solid ${COLORS.border}`, fontSize: 11 }} labelStyle={{ color: COLORS.textPrimary }} />
+        <Tooltip contentStyle={{ background: COLORS.panel, border: `1px solid ${COLORS.border}`, fontSize: 11 }} labelStyle={{ color: COLORS.textPrimary }} />
         {FAULT_FREQS.map((f) => (
           <ReferenceLine key={f.name} x={f.freq} stroke={f.color} strokeDasharray="3 3" strokeOpacity={0.6}
             label={{ value: f.name, position: 'top', fill: f.color, fontSize: 10 }} />
@@ -156,11 +186,65 @@ function SpectrumChart({ data, height = 200, maxFreq = 120, maxAmp = '' }) {
   );
 }
 
-function OverviewPage({ latest, history }) {
+function OverviewPage({ latest, history, session, startSession, sessionBusy }) {
   const rmsTrendData = history.map((h, i) => ({ i, rms_x: h.rms_x, rms_y: h.rms_y, rms_z: h.rms_z }));
+  const TRAINING_LABELS = ['normal', 'bpfo', 'bpfi', 'ftf', 'bsf'];
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
+      <Panel title="Recording Session" className="lg:col-span-5">
+        <div className="flex items-center justify-between flex-wrap gap-3 mb-3">
+          <div>
+            <span style={{ color: COLORS.textSecondary }} className="text-sm">Currently labeling as </span>
+            <span style={{ color: session.label === 'unlabeled' ? COLORS.red : COLORS.amber, fontFamily: '"JetBrains Mono", monospace' }} className="text-sm font-bold uppercase">
+              {session.label}
+            </span>
+            {session.trial > 0 && (
+              <span style={{ color: COLORS.textSecondary, fontFamily: '"JetBrains Mono", monospace' }} className="text-sm"> · trial {session.trial}</span>
+            )}
+          </div>
+        </div>
+
+        <div style={{ color: COLORS.textSecondary }} className="text-xs uppercase tracking-wider mb-1.5">Known condition (training data collection)</div>
+        <div className="flex gap-2 flex-wrap mb-3">
+          {TRAINING_LABELS.map((l) => (
+            <button
+              key={l}
+              disabled={sessionBusy}
+              onClick={() => startSession(l)}
+              style={{
+                background: session.label === l ? COLORS.amber : COLORS.panelAlt,
+                color: session.label === l ? '#FFFFFF' : COLORS.textPrimary,
+                border: `1px solid ${session.label === l ? COLORS.amber : COLORS.border}`,
+                opacity: sessionBusy ? 0.5 : 1,
+              }}
+              className="text-xs px-3 py-1.5 rounded uppercase font-medium"
+            >
+              Start {l}
+            </button>
+          ))}
+        </div>
+
+        <div style={{ color: COLORS.textSecondary }} className="text-xs uppercase tracking-wider mb-1.5">Real use (condition unknown -- rely on AI Prediction tab instead)</div>
+        <button
+          disabled={sessionBusy}
+          onClick={() => startSession('monitoring')}
+          style={{
+            background: session.label === 'monitoring' ? COLORS.cyan : COLORS.panelAlt,
+            color: session.label === 'monitoring' ? '#FFFFFF' : COLORS.textPrimary,
+            border: `1px solid ${session.label === 'monitoring' ? COLORS.cyan : COLORS.border}`,
+            opacity: sessionBusy ? 0.5 : 1,
+          }}
+          className="text-xs px-3 py-1.5 rounded uppercase font-medium"
+        >
+          Start Monitoring (unknown state)
+        </button>
+
+        <div style={{ color: COLORS.textSecondary }} className="text-xs mt-3">
+          Only click a "known condition" button when you actually know the ground truth. Otherwise click "Start Monitoring" -- this keeps real-world unknown-state data from being silently mislabeled with whatever training label was last active.
+        </div>
+      </Panel>
+
       <Panel title="Sensor Readings" className="lg:col-span-3">
         <div className="grid grid-cols-3 gap-2">
           {CHANNELS.map((ch) => {
@@ -170,14 +254,11 @@ function OverviewPage({ latest, history }) {
             );
           })}
         </div>
-        <div style={{ color: COLORS.textSecondary }} className="text-xs mt-3">
-          Layout supports additional channels (e.g. temperature, current) as new sensors are added -- each is one more card, no page redesign needed.
-        </div>
       </Panel>
 
       <Panel title="Fault Classification" className="lg:col-span-2">
         <div style={{ color: COLORS.textSecondary }} className="text-sm py-4 text-center">
-          Model not trained yet. This panel will show Normal / BPFO / BPFI / FTF / BSF once the Random Forest model is added.
+          Model not trained yet.
         </div>
       </Panel>
 
@@ -197,7 +278,7 @@ function OverviewPage({ latest, history }) {
             <CartesianGrid stroke={COLORS.border} strokeDasharray="2 4" />
             <XAxis dataKey="i" stroke={COLORS.textSecondary} tick={false} />
             <YAxis stroke={COLORS.textSecondary} tick={{ fontSize: 10 }} />
-            <Tooltip contentStyle={{ background: COLORS.panelAlt, border: `1px solid ${COLORS.border}`, fontSize: 11 }} />
+            <Tooltip contentStyle={{ background: COLORS.panel, border: `1px solid ${COLORS.border}`, fontSize: 11 }} />
             <Line type="monotone" dataKey="rms_x" stroke={COLORS.green} strokeWidth={2} dot={false} isAnimationActive={false} />
           </LineChart>
         </ResponsiveContainer>
@@ -228,7 +309,7 @@ function SignalAnalysisPage({ latest }) {
           <button key={ch.id} onClick={() => setAxis(ch.id)}
             style={{
               background: axis === ch.id ? COLORS.amber : 'transparent',
-              color: axis === ch.id ? COLORS.bg : COLORS.textSecondary,
+              color: axis === ch.id ? '#FFFFFF' : COLORS.textSecondary,
               border: `1px solid ${axis === ch.id ? COLORS.amber : COLORS.border}`,
               fontFamily: '"JetBrains Mono", monospace',
             }}
@@ -246,7 +327,7 @@ function SignalAnalysisPage({ latest }) {
               <CartesianGrid stroke={COLORS.border} strokeDasharray="2 4" />
               <XAxis dataKey="t" stroke={COLORS.textSecondary} tick={{ fontSize: 10 }} label={{ value: 's', position: 'insideBottomRight', offset: -2, fill: COLORS.textSecondary, fontSize: 10 }} />
               <YAxis stroke={COLORS.textSecondary} tick={{ fontSize: 10 }} />
-              <Tooltip contentStyle={{ background: COLORS.panelAlt, border: `1px solid ${COLORS.border}`, fontSize: 11 }} />
+              <Tooltip contentStyle={{ background: COLORS.panel, border: `1px solid ${COLORS.border}`, fontSize: 11 }} />
               <Line type="monotone" dataKey="v" stroke={COLORS.cyan} strokeWidth={1} dot={false} isAnimationActive={false} />
             </LineChart>
           </ResponsiveContainer>
@@ -339,7 +420,7 @@ function TrendPage({ history }) {
             <CartesianGrid stroke={COLORS.border} strokeDasharray="2 4" />
             <XAxis dataKey="i" stroke={COLORS.textSecondary} tick={{ fontSize: 10 }} />
             <YAxis stroke={COLORS.textSecondary} tick={{ fontSize: 10 }} />
-            <Tooltip contentStyle={{ background: COLORS.panelAlt, border: `1px solid ${COLORS.border}`, fontSize: 11 }} />
+            <Tooltip contentStyle={{ background: COLORS.panel, border: `1px solid ${COLORS.border}`, fontSize: 11 }} />
             <Line type="monotone" dataKey="rms_x" stroke={COLORS.green} strokeWidth={2} dot={false} isAnimationActive={false} />
           </LineChart>
         </ResponsiveContainer>
@@ -355,60 +436,77 @@ function TrendPage({ history }) {
 }
 
 const PAGES = [
-  { id: 'overview', label: 'Overview', Component: OverviewPage },
-  { id: 'signal', label: 'Signal Analysis', Component: SignalAnalysisPage },
-  { id: 'prediction', label: 'AI Prediction', Component: PredictionPage },
-  { id: 'trend', label: 'Trend Analysis', Component: TrendPage },
+  { id: 'overview', label: 'Overview', icon: LayoutDashboard, Component: OverviewPage },
+  { id: 'signal', label: 'Signal Analysis', icon: Activity, Component: SignalAnalysisPage },
+  { id: 'prediction', label: 'AI Prediction', icon: Cpu, Component: PredictionPage },
+  { id: 'trend', label: 'Trend Analysis', icon: TrendingUp, Component: TrendPage },
 ];
 
 export default function MotorFaultDashboard() {
   const [page, setPage] = useState('overview');
-  const { latest, history, error, loading } = useApiData();
-  const ActivePage = PAGES.find((p) => p.id === page).Component;
+  const { latest, history, session, error, loading, startSession, sessionBusy } = useApiData();
+  const active = PAGES.find((p) => p.id === page);
+  const ActivePage = active.Component;
 
   return (
-    <div style={{ background: COLORS.bg, color: COLORS.textPrimary, fontFamily: 'Inter, sans-serif', minHeight: '100vh' }} className="p-6">
+    <div style={{ fontFamily: 'Inter, sans-serif', minHeight: '100vh' }} className="flex">
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap');
       `}</style>
 
-      <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
-        <div>
-          <div style={{ fontFamily: '"Space Grotesk", sans-serif', letterSpacing: '0.02em' }} className="text-2xl font-bold">MOTOR FAULT MONITOR</div>
-          <div style={{ color: COLORS.textSecondary }} className="text-sm mt-1">ADXL335 (GY-61) · DE bearing housing · 6201ZZC3</div>
+      {/* Sidebar */}
+      <div style={{ width: 220, background: SIDEBAR.bg }} className="flex flex-col p-4 shrink-0">
+        <div className="flex items-center gap-2 mb-8 px-2 pt-1">
+          <Gauge size={20} color={COLORS.amber} />
+          <span style={{ color: '#FFFFFF', fontFamily: '"Space Grotesk", sans-serif', letterSpacing: '0.02em' }} className="font-bold text-sm">MOTOR MONITOR</span>
         </div>
-        <div className="flex items-center gap-2">
-          <span style={{ background: error ? COLORS.red : COLORS.green, boxShadow: `0 0 8px ${error ? COLORS.red : COLORS.green}` }} className="w-2.5 h-2.5 rounded-full inline-block animate-pulse" />
-          <span style={{ color: error ? COLORS.red : COLORS.green, fontFamily: '"JetBrains Mono", monospace' }} className="text-sm font-medium">{error ? 'DISCONNECTED' : 'LIVE'}</span>
-        </div>
+        <nav className="flex flex-col gap-1">
+          {PAGES.map((p) => {
+            const Icon = p.icon;
+            const isActive = page === p.id;
+            return (
+              <button
+                key={p.id}
+                onClick={() => setPage(p.id)}
+                style={{
+                  background: isActive ? SIDEBAR.hoverBg : 'transparent',
+                  color: isActive ? SIDEBAR.textActive : SIDEBAR.text,
+                }}
+                className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm text-left"
+              >
+                <Icon size={16} />
+                {p.label}
+              </button>
+            );
+          })}
+        </nav>
       </div>
 
-      {error && (
-        <div style={{ background: COLORS.panel, border: `1px solid ${COLORS.red}`, color: COLORS.red }} className="rounded-lg p-3 mb-4 text-sm">
-          Can't reach backend: {error}. Check that API_BASE_URL points to your deployed Render service, that the backend is awake (first request after idle can take 30-50s), and that the ESP32 has sent at least one batch.
+      {/* Main content */}
+      <div style={{ background: COLORS.bg, color: COLORS.textPrimary }} className="flex-1 p-6 overflow-auto">
+        <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+          <div>
+            <div style={{ fontFamily: '"Space Grotesk", sans-serif' }} className="text-xl font-bold">{active.label}</div>
+            <div style={{ color: COLORS.textSecondary }} className="text-sm mt-1">ADXL335 (GY-61) · DE bearing housing · 6201ZZC3</div>
+          </div>
+          <div className="flex items-center gap-2">
+            <span style={{ background: error ? COLORS.red : COLORS.green }} className="w-2.5 h-2.5 rounded-full inline-block animate-pulse" />
+            <span style={{ color: error ? COLORS.red : COLORS.green, fontFamily: '"JetBrains Mono", monospace' }} className="text-sm font-medium">{error ? 'DISCONNECTED' : 'LIVE'}</span>
+          </div>
         </div>
-      )}
 
-      {loading && !latest && !error && (
-        <div style={{ color: COLORS.textSecondary }} className="text-sm mb-4">Loading...</div>
-      )}
+        {error && (
+          <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', color: COLORS.red }} className="rounded-lg p-3 mb-4 text-sm">
+            Can't reach backend: {error}. Check that API_BASE_URL points to your deployed Render service, that the backend is awake (first request after idle can take 30-50s), and that the ESP32 has sent at least one batch.
+          </div>
+        )}
 
-      <div style={{ borderBottom: `1px solid ${COLORS.border}` }} className="flex gap-1 mb-5 flex-wrap">
-        {PAGES.map((p) => (
-          <button key={p.id} onClick={() => setPage(p.id)}
-            style={{
-              color: page === p.id ? COLORS.amber : COLORS.textSecondary,
-              borderBottom: page === p.id ? `2px solid ${COLORS.amber}` : '2px solid transparent',
-              fontFamily: '"JetBrains Mono", monospace',
-            }}
-            className="text-sm px-3 py-2 -mb-px"
-          >
-            {p.label}
-          </button>
-        ))}
+        {loading && !latest && !error && (
+          <div style={{ color: COLORS.textSecondary }} className="text-sm mb-4">Loading...</div>
+        )}
+
+        <ActivePage latest={latest} history={history} session={session} startSession={startSession} sessionBusy={sessionBusy} />
       </div>
-
-      <ActivePage latest={latest} history={history} />
     </div>
   );
 }
