@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine, ResponsiveContainer } from 'recharts';
-import { LayoutDashboard, Activity, Cpu, TrendingUp, Gauge } from 'lucide-react';
+import { LayoutDashboard, Activity, Cpu, TrendingUp, Gauge, Menu, X } from 'lucide-react';
 
 // Set this to your deployed Render backend URL once you have it, e.g.
 // const API_BASE_URL = 'https://motor-vibration-backend.onrender.com';
@@ -65,17 +65,38 @@ function getAmplitudeAt(spectrumPoints, targetFreq) {
   return closest.mag;
 }
 
-function useApiData() {
+function useDeviceList() {
+  const [devices, setDevices] = useState([]);
+  useEffect(() => {
+    let cancelled = false;
+    async function fetchDevices() {
+      try {
+        const res = await fetch(`${API_BASE_URL}/devices`);
+        if (res.ok && !cancelled) setDevices(await res.json());
+      } catch (e) {
+        // non-critical
+      }
+    }
+    fetchDevices();
+    const interval = setInterval(fetchDevices, 15000); // pick up new units coming online
+    return () => { cancelled = true; clearInterval(interval); };
+  }, []);
+  return devices;
+}
+
+function useApiData(deviceId) {
   const [latest, setLatest] = useState(null);
   const [history, setHistory] = useState([]);
   const [session, setSession] = useState({ label: 'unlabeled', trial: 0 });
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
   const [sessionBusy, setSessionBusy] = useState(false);
+  const [sessionError, setSessionError] = useState(null);
 
   const fetchLatest = useCallback(async () => {
+    if (!deviceId) return;
     try {
-      const res = await fetch(`${API_BASE_URL}/latest`);
+      const res = await fetch(`${API_BASE_URL}/latest?device_id=${deviceId}`);
       if (!res.ok) throw new Error(`/latest returned HTTP ${res.status}`);
       setLatest(await res.json());
       setError(null);
@@ -84,33 +105,34 @@ function useApiData() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [deviceId]);
 
   const fetchHistory = useCallback(async () => {
+    if (!deviceId) return;
     try {
-      const res = await fetch(`${API_BASE_URL}/history?limit=50`);
+      const res = await fetch(`${API_BASE_URL}/history?device_id=${deviceId}&limit=30`);
       if (res.ok) setHistory(await res.json());
     } catch (e) {
       // non-critical -- don't let a history hiccup override the main connection status
     }
-  }, []);
+  }, [deviceId]);
 
   const fetchSession = useCallback(async () => {
+    if (!deviceId) return;
     try {
-      const res = await fetch(`${API_BASE_URL}/session/current`);
+      const res = await fetch(`${API_BASE_URL}/session/current?device_id=${deviceId}`);
       if (res.ok) setSession(await res.json());
     } catch (e) {
       // non-critical
     }
-  }, []);
-
-  const [sessionError, setSessionError] = useState(null);
+  }, [deviceId]);
 
   const startSession = useCallback(async (label) => {
+    if (!deviceId) return;
     setSessionBusy(true);
     setSessionError(null);
     try {
-      const res = await fetch(`${API_BASE_URL}/session/start?label=${label}`, { method: 'POST' });
+      const res = await fetch(`${API_BASE_URL}/session/start?device_id=${deviceId}&label=${label}`, { method: 'POST' });
       if (!res.ok) {
         const body = await res.text();
         throw new Error(`HTTP ${res.status}: ${body.slice(0, 200)}`);
@@ -121,22 +143,46 @@ function useApiData() {
     } finally {
       setSessionBusy(false);
     }
-  }, []);
+  }, [deviceId]);
 
   useEffect(() => {
-    fetchLatest();
-    fetchHistory();
     fetchSession();
-    // /latest is a single cheap document read -- poll it often for a "live" feel.
-    // /history reads up to 50 documents per call -- poll it far less often to
-    // avoid burning through the Firestore free daily read quota (50k/day).
-    const latestInterval = setInterval(fetchLatest, 5000);
-    const historyInterval = setInterval(fetchHistory, 20000);
-    return () => {
+  }, [fetchSession]);
+
+  useEffect(() => {
+    let latestInterval = null;
+    let historyInterval = null;
+
+    function startPolling() {
+      fetchLatest();
+      fetchHistory();
+      // /latest is a single cheap row read -- poll it often for a "live" feel.
+      // /history reads up to 30 rows per call -- poll it less often.
+      latestInterval = setInterval(fetchLatest, 5000);
+      historyInterval = setInterval(fetchHistory, 30000);
+    }
+
+    function stopPolling() {
       clearInterval(latestInterval);
       clearInterval(historyInterval);
+    }
+
+    function handleVisibilityChange() {
+      if (document.visibilityState === 'visible') {
+        startPolling();
+      } else {
+        stopPolling();
+      }
+    }
+
+    if (document.visibilityState === 'visible') startPolling();
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      stopPolling();
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [fetchLatest, fetchHistory, fetchSession]);
+  }, [fetchLatest, fetchHistory]);
 
   return { latest, history, session, error, loading, startSession, sessionBusy, sessionError };
 }
@@ -167,7 +213,7 @@ function StatCard({ label, value, unit }) {
 function makeTicks(max, count = 5) {
   const m = Number(max) || 0;
   if (m <= 0) return undefined;
-  return Array.from({ length: count }, (_, i) => Number(((m * i) / (count - 1)).toFixed(2)));
+  return Array.from({ length: count }, (_, i) => Number(((m * i) / (count - 1)).toFixed(4)));
 }
 
 function SpectrumChart({ data, height = 200, maxFreq = 120, maxAmp = '' }) {
@@ -181,7 +227,7 @@ function SpectrumChart({ data, height = 200, maxFreq = 120, maxAmp = '' }) {
       <LineChart data={clippedData} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
         <CartesianGrid stroke={COLORS.border} strokeDasharray="2 4" />
         <XAxis dataKey="freq" type="number" domain={[0, freqMax]} allowDataOverflow stroke={COLORS.textSecondary} tick={{ fontSize: 10 }} label={{ value: 'Hz', position: 'insideBottomRight', offset: -2, fill: COLORS.textSecondary, fontSize: 10 }} />
-        <YAxis domain={yDomain} ticks={yTicks} tickFormatter={(v) => Number(v).toFixed(2)} allowDataOverflow stroke={COLORS.textSecondary} tick={{ fontSize: 10 }} />
+        <YAxis domain={yDomain} ticks={yTicks} tickFormatter={(v) => Number(v).toFixed(4)} allowDataOverflow stroke={COLORS.textSecondary} tick={{ fontSize: 10 }} />
         <Tooltip contentStyle={{ background: COLORS.panel, border: `1px solid ${COLORS.border}`, fontSize: 11 }} labelStyle={{ color: COLORS.textPrimary }} />
         {FAULT_FREQS.map((f) => (
           <ReferenceLine key={f.name} x={f.freq} stroke={f.color} strokeDasharray="3 3" strokeOpacity={0.6}
@@ -263,7 +309,7 @@ function OverviewPage({ latest, history, session, startSession, sessionBusy, ses
           {CHANNELS.map((ch) => {
             const val = latest?.[ch.id]?.rms;
             return (
-              <StatCard key={ch.id} label={`${ch.label} RMS`} value={val != null ? val.toFixed(1) : '--'} unit="raw" />
+              <StatCard key={ch.id} label={`${ch.label} RMS`} value={val != null ? val.toFixed(3) : '--'} unit="g" />
             );
           })}
         </div>
@@ -391,7 +437,7 @@ function SignalAnalysisPage({ latest }) {
                   <span style={{ color: COLORS.textPrimary }}>{f.name}</span>
                 </span>
                 <span style={{ color: COLORS.textSecondary, fontFamily: '"JetBrains Mono", monospace' }}>{f.freq}Hz</span>
-                <span style={{ color: COLORS.textPrimary, fontFamily: '"JetBrains Mono", monospace' }}>{getAmplitudeAt(spectrum, f.freq).toFixed(2)}</span>
+                <span style={{ color: COLORS.textPrimary, fontFamily: '"JetBrains Mono", monospace' }}>{getAmplitudeAt(spectrum, f.freq).toFixed(4)}</span>
               </div>
             ))}
           </div>
@@ -399,7 +445,7 @@ function SignalAnalysisPage({ latest }) {
       </div>
 
       <div className="grid grid-cols-3 gap-4">
-        <StatCard label="RMS" value={axisData?.rms != null ? axisData.rms.toFixed(1) : '--'} unit="raw" />
+        <StatCard label="RMS" value={axisData?.rms != null ? axisData.rms.toFixed(3) : '--'} unit="g" />
         <StatCard label="Crest Factor" value={axisData?.crest_factor != null ? axisData.crest_factor.toFixed(2) : '--'} unit="" />
         <StatCard label="Kurtosis" value={axisData?.kurtosis != null ? axisData.kurtosis.toFixed(2) : '--'} unit="" />
       </div>
@@ -420,9 +466,9 @@ function PredictionPage() {
 
 function TrendPage({ history }) {
   const values = history.map((h) => h.rms_x).filter((v) => v != null);
-  const avg = values.length ? (values.reduce((a, b) => a + b, 0) / values.length).toFixed(1) : '--';
-  const max = values.length ? Math.max(...values).toFixed(1) : '--';
-  const min = values.length ? Math.min(...values).toFixed(1) : '--';
+  const avg = values.length ? (values.reduce((a, b) => a + b, 0) / values.length).toFixed(3) : '--';
+  const max = values.length ? Math.max(...values).toFixed(3) : '--';
+  const min = values.length ? Math.min(...values).toFixed(3) : '--';
   const chartData = history.map((h, i) => ({ i, rms_x: h.rms_x }));
 
   return (
@@ -440,9 +486,9 @@ function TrendPage({ history }) {
       </Panel>
 
       <div className="grid grid-cols-3 gap-4">
-        <StatCard label="Average" value={avg} unit="raw" />
-        <StatCard label="Maximum" value={max} unit="raw" />
-        <StatCard label="Minimum" value={min} unit="raw" />
+        <StatCard label="Average" value={avg} unit="g" />
+        <StatCard label="Maximum" value={max} unit="g" />
+        <StatCard label="Minimum" value={min} unit="g" />
       </div>
     </div>
   );
@@ -457,7 +503,14 @@ const PAGES = [
 
 export default function MotorFaultDashboard() {
   const [page, setPage] = useState('overview');
-  const { latest, history, session, error, loading, startSession, sessionBusy, sessionError } = useApiData();
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const devices = useDeviceList();
+  const [selectedDevice, setSelectedDevice] = useState(null);
+  useEffect(() => {
+    if (!selectedDevice && devices.length > 0) setSelectedDevice(devices[0]);
+  }, [devices, selectedDevice]);
+
+  const { latest, history, session, error, loading, startSession, sessionBusy, sessionError } = useApiData(selectedDevice);
   const active = PAGES.find((p) => p.id === page);
   const ActivePage = active.Component;
 
@@ -479,11 +532,24 @@ export default function MotorFaultDashboard() {
         @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap');
       `}</style>
 
-      {/* Sidebar */}
-      <div style={{ width: 220, background: SIDEBAR.bg }} className="flex flex-col p-4 shrink-0">
-        <div className="flex items-center gap-2 mb-8 px-2 pt-1">
-          <Gauge size={20} color={COLORS.amber} />
-          <span style={{ color: '#FFFFFF', fontFamily: '"Space Grotesk", sans-serif', letterSpacing: '0.02em' }} className="font-bold text-sm">MOTOR MONITOR</span>
+      {/* Backdrop -- click to close the sidebar */}
+      {sidebarOpen && (
+        <div onClick={() => setSidebarOpen(false)} className="fixed inset-0 bg-black/50 z-40" />
+      )}
+
+      {/* Sidebar -- same overlay + slide-in behavior on every screen size */}
+      <div
+        style={{ width: 220, background: SIDEBAR.bg }}
+        className={`flex flex-col p-4 shrink-0 fixed inset-y-0 left-0 z-50 transition-transform duration-200 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}
+      >
+        <div className="flex items-center justify-between mb-8 px-2 pt-1">
+          <div className="flex items-center gap-2">
+            <Gauge size={20} color={COLORS.amber} />
+            <span style={{ color: '#FFFFFF', fontFamily: '"Space Grotesk", sans-serif', letterSpacing: '0.02em' }} className="font-bold text-sm">MOTOR MONITOR</span>
+          </div>
+          <button onClick={() => setSidebarOpen(false)} style={{ color: SIDEBAR.text }}>
+            <X size={18} />
+          </button>
         </div>
         <nav className="flex flex-col gap-1">
           {PAGES.map((p) => {
@@ -492,7 +558,7 @@ export default function MotorFaultDashboard() {
             return (
               <button
                 key={p.id}
-                onClick={() => setPage(p.id)}
+                onClick={() => { setPage(p.id); setSidebarOpen(false); }}
                 style={{
                   background: isActive ? SIDEBAR.hoverBg : 'transparent',
                   color: isActive ? SIDEBAR.textActive : SIDEBAR.text,
@@ -508,15 +574,45 @@ export default function MotorFaultDashboard() {
       </div>
 
       {/* Main content */}
-      <div style={{ background: COLORS.bg, color: COLORS.textPrimary }} className="flex-1 p-6 overflow-auto">
+      <div style={{ background: COLORS.bg, color: COLORS.textPrimary }} className="flex-1 p-6 overflow-auto w-full">
+        <button
+          onClick={() => setSidebarOpen(true)}
+          className="mb-4 flex items-center gap-2"
+          style={{ color: COLORS.textPrimary }}
+        >
+          <Menu size={22} />
+          <span style={{ fontFamily: '"Space Grotesk", sans-serif' }} className="font-bold text-sm">MOTOR MONITOR</span>
+        </button>
+
         <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
           <div>
             <div style={{ fontFamily: '"Space Grotesk", sans-serif' }} className="text-xl font-bold">{active.label}</div>
             <div style={{ color: COLORS.textSecondary }} className="text-sm mt-1">ADXL335 (GY-61) · DE bearing housing · 6201ZZC3</div>
           </div>
-          <div className="flex items-center gap-2">
-            <span style={{ background: statusColor }} className="w-2.5 h-2.5 rounded-full inline-block animate-pulse" />
-            <span style={{ color: statusColor, fontFamily: '"JetBrains Mono", monospace' }} className="text-sm font-medium">{statusLabel}</span>
+          <div className="flex items-center gap-3">
+            {devices.length > 0 ? (
+              <select
+                value={selectedDevice || ''}
+                onChange={(e) => setSelectedDevice(e.target.value)}
+                style={{
+                  background: COLORS.panel,
+                  border: `1px solid ${COLORS.border}`,
+                  color: COLORS.textPrimary,
+                  fontFamily: '"JetBrains Mono", monospace',
+                }}
+                className="text-sm px-3 py-1.5 rounded"
+              >
+                {devices.map((d) => (
+                  <option key={d} value={d}>{d}</option>
+                ))}
+              </select>
+            ) : (
+              <span style={{ color: COLORS.textSecondary }} className="text-xs">No devices yet -- waiting for first ESP32</span>
+            )}
+            <div className="flex items-center gap-2">
+              <span style={{ background: statusColor }} className="w-2.5 h-2.5 rounded-full inline-block animate-pulse" />
+              <span style={{ color: statusColor, fontFamily: '"JetBrains Mono", monospace' }} className="text-sm font-medium">{statusLabel}</span>
+            </div>
           </div>
         </div>
 
