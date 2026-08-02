@@ -146,6 +146,16 @@ function useApiData(deviceId) {
   }, [deviceId]);
 
   useEffect(() => {
+    // Clear stale data immediately on device switch -- otherwise a failed fetch
+    // for the newly-selected device would leave the PREVIOUS device's data on
+    // screen, which looks like real data for the wrong device.
+    setLatest(null);
+    setHistory([]);
+    setError(null);
+    setSession({ label: 'unlabeled', trial: 0 });
+  }, [deviceId]);
+
+  useEffect(() => {
     fetchSession();
   }, [fetchSession]);
 
@@ -300,7 +310,7 @@ function OverviewPage({ latest, history, session, startSession, sessionBusy, ses
         </button>
 
         <div style={{ color: COLORS.textSecondary }} className="text-xs mt-3">
-          Only click a "known condition" button when you actually know the ground truth. Otherwise click "Start Monitoring" -- this keeps real-world unknown-state data from being silently mislabeled with whatever training label was last active.
+          Only click a "known condition" button when you actually know the ground truth (e.g. right after installing a specific damaged bearing). Otherwise click "Start Monitoring" -- this keeps real-world unknown-state data from being silently mislabeled with whatever training label was last active.
         </div>
       </Panel>
 
@@ -313,11 +323,14 @@ function OverviewPage({ latest, history, session, startSession, sessionBusy, ses
             );
           })}
         </div>
+        <div style={{ color: COLORS.textSecondary }} className="text-xs mt-3">
+          Layout supports additional channels (e.g. temperature, current) as new sensors are added -- each is one more card, no page redesign needed.
+        </div>
       </Panel>
 
       <Panel title="Fault Classification" className="lg:col-span-2">
         <div style={{ color: COLORS.textSecondary }} className="text-sm py-4 text-center">
-          Model not trained yet.
+          Model not trained yet. This panel will show Normal / BPFO / BPFI / FTF / BSF once the Random Forest model is added.
         </div>
       </Panel>
 
