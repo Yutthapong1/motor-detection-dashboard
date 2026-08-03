@@ -4,7 +4,7 @@ import { LayoutDashboard, Activity, Cpu, TrendingUp, Gauge, Menu, X } from 'luci
 
 // Set this to your deployed Render backend URL once you have it, e.g.
 // const API_BASE_URL = 'https://motor-vibration-backend.onrender.com';
-const API_BASE_URL = 'https://motor-fault-detection.onrender.com';
+const API_BASE_URL = 'https://your-backend.onrender.com';
 
 // Light theme for the main content area
 const COLORS = {
@@ -43,6 +43,17 @@ const CHANNELS = [
   { id: 'y', label: 'Y-Axis' },
   { id: 'z', label: 'Z-Axis' },
 ];
+
+function formatDuration(ms) {
+  const sec = Math.floor(ms / 1000);
+  if (sec < 60) return `${sec}s`;
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}m ${sec % 60}s`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h ${min % 60}m`;
+  const day = Math.floor(hr / 24);
+  return `${day}d ${hr % 24}h`;
+}
 
 function zipSpectrum(freqs, mags) {
   if (!freqs || !mags) return [];
@@ -366,6 +377,7 @@ function SignalAnalysisPage({ latest }) {
   const axisData = latest?.[axis];
   const spectrum = zipSpectrum(axisData?.spectrum_freqs, axisData?.spectrum_mag);
   const waveform = zipWaveform(axisData?.raw, latest?.sample_rate || 500);
+  const waveformDuration = waveform.length > 0 ? waveform[waveform.length - 1].t : 1;
 
   const inputStyle = {
     background: COLORS.panelAlt,
@@ -397,7 +409,7 @@ function SignalAnalysisPage({ latest }) {
           <ResponsiveContainer width="100%" height={160}>
             <LineChart data={waveform} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
               <CartesianGrid stroke={COLORS.border} strokeDasharray="2 4" />
-              <XAxis dataKey="t" stroke={COLORS.textSecondary} tick={{ fontSize: 10 }} label={{ value: 's', position: 'insideBottomRight', offset: -2, fill: COLORS.textSecondary, fontSize: 10 }} />
+              <XAxis dataKey="t" type="number" domain={[0, waveformDuration]} ticks={makeTicks(waveformDuration, 6)} tickFormatter={(v) => v.toFixed(2)} allowDataOverflow stroke={COLORS.textSecondary} tick={{ fontSize: 10 }} label={{ value: 's', position: 'insideBottomRight', offset: -2, fill: COLORS.textSecondary, fontSize: 10 }} />
               <YAxis stroke={COLORS.textSecondary} tick={{ fontSize: 10 }} />
               <Tooltip contentStyle={{ background: COLORS.panel, border: `1px solid ${COLORS.border}`, fontSize: 11 }} />
               <Line type="monotone" dataKey="v" stroke={COLORS.cyan} strokeWidth={1} dot={false} isAnimationActive={false} />
@@ -637,7 +649,7 @@ export default function MotorFaultDashboard() {
 
         {!error && isStale && (
           <div style={{ background: '#FFFBEB', border: '1px solid #FDE68A', color: COLORS.amber }} className="rounded-lg p-3 mb-4 text-sm">
-            Backend is reachable but the last reading is {Math.round(dataAgeMs / 1000)}s old -- the ESP32 doesn't appear to be actively sending right now. Check that it's powered on, connected to WiFi, and the sketch is running.
+            Backend is reachable but the last reading is {formatDuration(dataAgeMs)} old -- the ESP32 doesn't appear to be actively sending right now. Check that it's powered on, connected to WiFi, and the sketch is running.
           </div>
         )}
 
