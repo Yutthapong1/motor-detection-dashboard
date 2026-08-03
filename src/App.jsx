@@ -4,7 +4,7 @@ import { LayoutDashboard, Activity, Cpu, TrendingUp, Gauge, Menu, X } from 'luci
 
 // Set this to your deployed Render backend URL once you have it, e.g.
 // const API_BASE_URL = 'https://motor-vibration-backend.onrender.com';
-const API_BASE_URL = 'https://your-backend.onrender.com';
+const API_BASE_URL = 'https://motor-fault-detection.onrender.com';
 
 // Light theme for the main content area
 const COLORS = {
