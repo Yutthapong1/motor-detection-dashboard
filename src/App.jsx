@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine, ResponsiveContainer } from 'recharts';
-import { LayoutDashboard, Activity, Cpu, TrendingUp, Gauge, Menu, X } from 'lucide-react';
+import { LayoutDashboard, Activity, Cpu, TrendingUp, Gauge, Menu, X, History } from 'lucide-react';
 
 // Set this to your deployed Render backend URL once you have it, e.g.
 // const API_BASE_URL = 'https://motor-vibration-backend.onrender.com';
@@ -43,6 +43,9 @@ const CHANNELS = [
   { id: 'y', label: 'Y-Axis' },
   { id: 'z', label: 'Z-Axis' },
 ];
+
+// Hoisted from OverviewPage so HistoryPage's label filter can use the same list.
+const TRAINING_LABELS = ['normal', 'bpfo', 'bpfi', 'ftf', 'bsf'];
 
 function formatDuration(ms) {
   const sec = Math.floor(ms / 1000);
@@ -262,7 +265,6 @@ function SpectrumChart({ data, height = 200, maxFreq = 120, maxAmp = '' }) {
 
 function OverviewPage({ latest, history, session, startSession, sessionBusy, sessionError }) {
   const rmsTrendData = history.map((h, i) => ({ i, rms_x: h.rms_x, rms_y: h.rms_y, rms_z: h.rms_z }));
-  const TRAINING_LABELS = ['normal', 'bpfo', 'bpfi', 'ftf', 'bsf'];
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
@@ -519,11 +521,177 @@ function TrendPage({ history }) {
   );
 }
 
+function formatThaiDate(isoDate) {
+  return new Date(isoDate).toLocaleDateString('th-TH-u-ca-buddhist', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+function HistoryPage() {
+  const devices = useDeviceList(); // same hook the device selector in the header uses
+  const [days, setDays] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [deviceFilter, setDeviceFilter] = useState('');
+  const [labelFilter, setLabelFilter] = useState('');
+  const [selected, setSelected] = useState(null); // { device_id, label, trial }
+  const [detail, setDetail] = useState(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    const params = new URLSearchParams();
+    if (deviceFilter) params.set('device_id', deviceFilter);
+    if (labelFilter) params.set('label', labelFilter);
+    fetch(`${API_BASE_URL}/sessions?${params.toString()}`)
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      })
+      .then((data) => { if (!cancelled) setDays(data.days || []); })
+      .catch((e) => { if (!cancelled) setError(e.message || 'Could not reach backend'); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [deviceFilter, labelFilter]);
+
+  const openSession = (s) => {
+    setSelected(s);
+    setDetail(null);
+    setDetailError(null);
+    setDetailLoading(true);
+    const params = new URLSearchParams({ device_id: s.device_id, label: s.label, trial: s.trial });
+    fetch(`${API_BASE_URL}/sessions/detail?${params.toString()}`)
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      })
+      .then((data) => setDetail(data))
+      .catch((e) => setDetailError(e.message || 'Could not reach backend'))
+      .finally(() => setDetailLoading(false));
+  };
+
+  const selectStyle = {
+    background: COLORS.panelAlt,
+    border: `1px solid ${COLORS.border}`,
+    color: COLORS.textPrimary,
+    fontFamily: '"JetBrains Mono", monospace',
+  };
+
+  // Detail view -- reuses SignalAnalysisPage wholesale (same waveform/spectrum/
+  // marker readout as the live view), just fed a past session's reading instead
+  // of the live `latest` one. No chart code duplicated.
+  if (selected) {
+    return (
+      <div className="space-y-4">
+        <button
+          onClick={() => { setSelected(null); setDetail(null); setDetailError(null); }}
+          style={{ color: COLORS.textSecondary, fontFamily: '"JetBrains Mono", monospace' }}
+          className="text-xs"
+        >
+          ← Back to session list
+        </button>
+
+        <Panel title="Session">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span style={{ color: COLORS.textPrimary, fontFamily: '"JetBrains Mono", monospace' }} className="text-sm font-medium">
+              {selected.device_id}
+            </span>
+            <span
+              style={{ color: selected.label === 'monitoring' ? COLORS.cyan : COLORS.amber, fontFamily: '"JetBrains Mono", monospace' }}
+              className="text-sm font-bold uppercase"
+            >
+              {selected.label}
+            </span>
+            <span style={{ color: COLORS.textSecondary, fontFamily: '"JetBrains Mono", monospace' }} className="text-sm">· trial {selected.trial}</span>
+            {detail?.timestamp && (
+              <span style={{ color: COLORS.textSecondary }} className="text-xs">
+                · showing peak-RMS batch, recorded {new Date(detail.timestamp).toLocaleString()}
+              </span>
+            )}
+          </div>
+        </Panel>
+
+        {detailLoading && <div style={{ color: COLORS.textSecondary }} className="text-sm">Loading...</div>}
+        {detailError && (
+          <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', color: COLORS.red }} className="rounded-lg p-3 text-sm">
+            Can't load session: {detailError}
+          </div>
+        )}
+        {detail && !detailError && <SignalAnalysisPage latest={detail} />}
+      </div>
+    );
+  }
+
+  // List view
+  return (
+    <div className="space-y-4">
+      <Panel title="Filters">
+        <div className="flex gap-3 flex-wrap">
+          <select value={deviceFilter} onChange={(e) => setDeviceFilter(e.target.value)} style={selectStyle} className="text-xs px-3 py-1.5 rounded uppercase font-medium">
+            <option value="">All devices</option>
+            {devices.map((d) => <option key={d} value={d}>{d}</option>)}
+          </select>
+          <select value={labelFilter} onChange={(e) => setLabelFilter(e.target.value)} style={selectStyle} className="text-xs px-3 py-1.5 rounded uppercase font-medium">
+            <option value="">All labels</option>
+            {[...TRAINING_LABELS, 'monitoring'].map((l) => <option key={l} value={l}>{l}</option>)}
+          </select>
+        </div>
+      </Panel>
+
+      <Panel title="Sessions by day">
+        {loading && <div style={{ color: COLORS.textSecondary }} className="text-sm">Loading...</div>}
+        {error && (
+          <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', color: COLORS.red }} className="rounded-lg p-3 text-sm">
+            Can't load history: {error}
+          </div>
+        )}
+        {!loading && !error && days.length === 0 && (
+          <div style={{ color: COLORS.textSecondary }} className="text-sm">No sessions recorded yet.</div>
+        )}
+        {days.map((day) => (
+          <div key={day.date} className="mb-5 last:mb-0">
+            <div style={{ color: COLORS.textPrimary, fontFamily: '"JetBrains Mono", monospace' }} className="text-sm font-bold uppercase mb-2">
+              {formatThaiDate(day.date)}
+            </div>
+            <div className="flex flex-col gap-2">
+              {day.sessions.map((s) => {
+                const labelColor = s.label === 'monitoring' ? COLORS.cyan : COLORS.amber;
+                return (
+                  <button
+                    key={`${s.device_id}-${s.label}-${s.trial}`}
+                    onClick={() => openSession(s)}
+                    style={{ background: 'transparent', border: `1px solid ${COLORS.border}` }}
+                    className="text-left rounded p-2.5 flex items-center justify-between gap-3 flex-wrap"
+                  >
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span style={{ color: COLORS.textPrimary, fontFamily: '"JetBrains Mono", monospace' }} className="text-sm font-medium">{s.device_id}</span>
+                      <span style={{ color: labelColor, fontFamily: '"JetBrains Mono", monospace' }} className="text-xs font-bold uppercase">{s.label}</span>
+                      <span style={{ color: COLORS.textSecondary }} className="text-xs">· trial {s.trial}</span>
+                      <span style={{ color: COLORS.textSecondary }} className="text-xs">
+                        · {new Date(s.start_time).toLocaleTimeString()}–{new Date(s.end_time).toLocaleTimeString()}
+                      </span>
+                    </div>
+                    <div style={{ color: COLORS.textSecondary, fontFamily: '"JetBrains Mono", monospace' }} className="text-xs shrink-0">
+                      avg RMS {s.avg_rms.x?.toFixed(3) ?? '--'} / {s.avg_rms.y?.toFixed(3) ?? '--'} / {s.avg_rms.z?.toFixed(3) ?? '--'} g
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </Panel>
+    </div>
+  );
+}
+
 const PAGES = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard, Component: OverviewPage },
   { id: 'signal', label: 'Signal Analysis', icon: Activity, Component: SignalAnalysisPage },
   { id: 'prediction', label: 'AI Prediction', icon: Cpu, Component: PredictionPage },
   { id: 'trend', label: 'Trend Analysis', icon: TrendingUp, Component: TrendPage },
+  { id: 'history', label: 'History', icon: History, Component: HistoryPage },
 ];
 
 export default function MotorFaultDashboard() {
