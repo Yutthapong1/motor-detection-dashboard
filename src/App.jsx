@@ -598,7 +598,7 @@ function HistoryPage() {
               {selected.device_id}
             </span>
             <span
-              style={{ color: selected.label === 'monitoring' ? COLORS.cyan : COLORS.amber, fontFamily: '"JetBrains Mono", monospace' }}
+              style={{ color: selected.label === 'monitoring' ? COLORS.cyan : selected.label === 'unlabeled' ? COLORS.red : COLORS.amber, fontFamily: '"JetBrains Mono", monospace' }}
               className="text-sm font-bold uppercase"
             >
               {selected.label}
@@ -634,7 +634,7 @@ function HistoryPage() {
           </select>
           <select value={labelFilter} onChange={(e) => setLabelFilter(e.target.value)} style={selectStyle} className="text-xs px-3 py-1.5 rounded uppercase font-medium">
             <option value="">All labels</option>
-            {[...TRAINING_LABELS, 'monitoring'].map((l) => <option key={l} value={l}>{l}</option>)}
+            {[...TRAINING_LABELS, 'monitoring', 'unlabeled'].map((l) => <option key={l} value={l}>{l}</option>)}
           </select>
         </div>
       </Panel>
@@ -656,7 +656,7 @@ function HistoryPage() {
             </div>
             <div className="flex flex-col gap-2">
               {day.sessions.map((s) => {
-                const labelColor = s.label === 'monitoring' ? COLORS.cyan : COLORS.amber;
+                const labelColor = s.label === 'monitoring' ? COLORS.cyan : s.label === 'unlabeled' ? COLORS.red : COLORS.amber;
                 return (
                   <button
                     key={`${s.device_id}-${s.label}-${s.trial}`}
