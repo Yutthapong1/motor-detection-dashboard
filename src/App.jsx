@@ -28,14 +28,17 @@ const SIDEBAR = {
   textActive: '#D97706',
 };
 
+// 1500rpm no-load condition. Previous (1310rpm, VFD-reduced) set, for
+// reference: 1x=21.83 2x=43.67 3x=65.5 FTF=7.99 BPFO=55.92 BSF=75.56 BPFI=96.91
+// All scale linearly with shaft speed -- recomputed as (1500/1310) x old value.
 const FAULT_FREQS = [
-  { name: '1x', freq: 21.83, color: COLORS.cyan },
-  { name: '2x', freq: 43.67, color: COLORS.cyan },
-  { name: '3x', freq: 65.5, color: COLORS.cyan },
-  { name: 'FTF', freq: 7.99, color: COLORS.red },
-  { name: 'BPFO', freq: 55.92, color: COLORS.red },
-  { name: 'BSF', freq: 75.56, color: COLORS.red },
-  { name: 'BPFI', freq: 96.91, color: COLORS.red },
+  { name: '1x', freq: 25, color: COLORS.cyan },
+  { name: '2x', freq: 50, color: COLORS.cyan },
+  { name: '3x', freq: 75, color: COLORS.cyan },
+  { name: 'FTF', freq: 9.15, color: COLORS.red },
+  { name: 'BPFO', freq: 64.03, color: COLORS.red },
+  { name: 'BSF', freq: 86.52, color: COLORS.red },
+  { name: 'BPFI', freq: 110.97, color: COLORS.red },
 ];
 
 const CHANNELS = [
@@ -351,7 +354,7 @@ function OverviewPage({ latest, history, session, startSession, sessionBusy, ses
         <div className="grid grid-cols-2 gap-3 text-sm">
           <div className="flex justify-between"><span style={{ color: COLORS.textSecondary }}>Bearing</span><span>6201ZZC3</span></div>
           <div className="flex justify-between"><span style={{ color: COLORS.textSecondary }}>Mount</span><span>DE housing</span></div>
-          <div className="flex justify-between"><span style={{ color: COLORS.textSecondary }}>Running speed</span><span style={{ fontFamily: '"JetBrains Mono", monospace' }}>1310 RPM</span></div>
+          <div className="flex justify-between"><span style={{ color: COLORS.textSecondary }}>Running speed</span><span style={{ fontFamily: '"JetBrains Mono", monospace' }}>1500 RPM</span></div>
           <div className="flex justify-between"><span style={{ color: COLORS.textSecondary }}>Sample rate</span><span style={{ fontFamily: '"JetBrains Mono", monospace' }}>{latest?.sample_rate ?? '--'} Hz</span></div>
           <div className="flex justify-between col-span-2"><span style={{ color: COLORS.textSecondary }}>Last reading</span><span style={{ fontFamily: '"JetBrains Mono", monospace' }}>{latest?.timestamp ? new Date(latest.timestamp).toLocaleString() : '--'}</span></div>
         </div>
