@@ -375,12 +375,37 @@ function OverviewPage({ latest, history, session, startSession, sessionBusy, ses
   );
 }
 
-function SignalAnalysisPage({ latest }) {
+function SignalAnalysisPage({ latest, deviceId }) {
   const [axis, setAxis] = useState('x');
   const [maxFreq, setMaxFreq] = useState(120);
   const [maxAmp, setMaxAmp] = useState(''); // empty = auto-scale
+  const [averaged, setAveraged] = useState(false);
+  const [avgN, setAvgN] = useState(5);
+  const [averagedLatest, setAveragedLatest] = useState(null);
+
+  useEffect(() => {
+    if (!averaged || !deviceId) return;
+    let cancelled = false;
+    async function fetchAveraged() {
+      try {
+        const res = await fetch(`${API_BASE_URL}/latest/averaged?device_id=${deviceId}&n=${avgN}`);
+        if (res.ok && !cancelled) setAveragedLatest(await res.json());
+      } catch (e) {
+        // non-critical -- keep showing the last good averaged spectrum
+      }
+    }
+    fetchAveraged();
+    const interval = setInterval(fetchAveraged, 5000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [averaged, avgN, deviceId]);
+
+  // axisData stays tied to the single latest reading -- raw waveform and the
+  // RMS/crest/kurtosis stat cards below are deliberately NOT averaged, only
+  // the spectrum is (see spectrumSource). Keeps "what you're looking at"
+  // unambiguous: one live snapshot plus one smoothed view of recent history.
   const axisData = latest?.[axis];
-  const spectrum = zipSpectrum(axisData?.spectrum_freqs, axisData?.spectrum_mag);
+  const spectrumSource = (averaged && averagedLatest) ? averagedLatest[axis] : axisData;
+  const spectrum = zipSpectrum(spectrumSource?.spectrum_freqs, spectrumSource?.spectrum_mag);
   const waveform = zipWaveform(axisData?.raw, latest?.sample_rate || 500);
   const waveformDuration = waveform.length > 0 ? waveform[waveform.length - 1].t : 1;
 
@@ -438,6 +463,15 @@ function SignalAnalysisPage({ latest }) {
           className="lg:col-span-3"
           right={
             <div className="flex items-center gap-3 text-xs">
+              {deviceId && (
+                <label className="flex items-center gap-1.5" style={{ color: COLORS.textSecondary }}>
+                  <input type="checkbox" checked={averaged} onChange={(e) => setAveraged(e.target.checked)} />
+                  Avg last
+                  <input type="number" min="1" value={avgN} disabled={!averaged}
+                    onChange={(e) => setAvgN(Math.max(1, Number(e.target.value) || 1))}
+                    style={inputStyle} className="w-10 rounded px-1 py-0.5" />
+                </label>
+              )}
               <label className="flex items-center gap-1.5" style={{ color: COLORS.textSecondary }}>
                 Max Hz
                 <input type="number" value={maxFreq} onChange={(e) => setMaxFreq(e.target.value)}
@@ -452,9 +486,14 @@ function SignalAnalysisPage({ latest }) {
           }
         >
           <SpectrumChart data={spectrum} maxFreq={maxFreq} maxAmp={maxAmp} />
-          <div className="flex gap-4 mt-1 flex-wrap">
+          <div className="flex gap-4 mt-1 flex-wrap items-center">
             <div className="flex items-center gap-1.5"><span style={{ background: COLORS.cyan }} className="w-2 h-2 rounded-full inline-block" /><span style={{ color: COLORS.textSecondary }} className="text-xs">Running speed harmonics</span></div>
             <div className="flex items-center gap-1.5"><span style={{ background: COLORS.red }} className="w-2 h-2 rounded-full inline-block" /><span style={{ color: COLORS.textSecondary }} className="text-xs">Bearing fault frequencies</span></div>
+            {averaged && (
+              <span style={{ color: COLORS.textSecondary }} className="text-xs">
+                Averaged over {spectrumSource?.averaged_over ?? '--'} reading(s)
+              </span>
+            )}
           </div>
         </Panel>
 
@@ -828,7 +867,7 @@ export default function MotorFaultDashboard() {
           <div style={{ color: COLORS.textSecondary }} className="text-sm mb-4">Loading...</div>
         )}
 
-        <ActivePage latest={latest} history={history} session={session} startSession={startSession} sessionBusy={sessionBusy} sessionError={sessionError} />
+        <ActivePage latest={latest} history={history} session={session} startSession={startSession} sessionBusy={sessionBusy} sessionError={sessionError} deviceId={selectedDevice} />
       </div>
     </div>
   );
